@@ -1,0 +1,520 @@
+--------------aspx-------------
+<%@ Page Language="C#" Debug="true" AutoEventWireup="true" CodeFile="InvDetails.aspx.cs" Inherits="InvDetails" %>
+<!DOCTYPE html>
+<html lang="hu">
+
+<head runat="server">
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>ELI – Projekt Details</title>
+    <style>
+        :root {
+            --bg: #0b1020;
+            --panel: rgb(15, 23, 42);
+            --muted: #94a3b8;
+            --line: #1f2a44;
+            --text: #e5e7eb;
+            --accent: #22c55e;
+            --accent-2: #3b82f6;
+            --danger: #ef4444;
+            --warn: #f59e0b;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            height: 100%;
+        }
+
+        body {
+            margin: 0;
+            background: linear-gradient(180deg, #0a0f1d 0%, #0b1020 100%);
+            color: var(--text);
+            font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
+                Arial;
+        }
+
+        a {
+            color: var(--accent-2);
+            text-decoration: none;
+        }
+
+        .wrap {
+            max-width: 1500px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* Header */
+        .header {
+            display: flex;
+            gap: 12px;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .brand {
+            font-weight: 800;
+            font-size: clamp(18px, 2.4vw, 26px);
+            letter-spacing: 0.2px;
+        }
+
+        .kpis {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .kpi {
+            background: linear-gradient(180deg, #0f1a34, #0f172a);
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 10px 12px;
+            text-align: center;
+        }
+
+        .kpi .big {
+            font-weight: 800;
+            font-size: clamp(18px, 2.6vw, 24px);
+        }
+
+        .kpi .sub {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        /* Panels */
+        .panel {
+            background: linear-gradient(180deg, #0f172a, #0d1426);
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            padding: 14px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+        }
+
+        .section-title {
+            font-size: 12px;
+            color: var(--muted);
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }
+
+        /* Layout */
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 16px;
+        }
+
+        @media (max-width: 980px) {
+            .grid-2 {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Inputs */
+        label {
+            font-size: 12px;
+            color: var(--muted);
+        }
+
+        a {
+
+            font-size: 12px;
+            color: #618fce;
+
+        }
+
+        a:hover {
+            color: #2e71ce;
+        }
+
+        .stack {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .toolbar,
+        .filters {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 10px;
+        }
+
+        input[type="text"],
+        select {
+            width: 100%;
+            padding: 10px 12px;
+            border-radius: 10px;
+            background: #0b1220;
+            border: 1px solid var(--line);
+            color: var(--text);
+            outline: none;
+        }
+
+        input[type="text"]:focus,
+        select:focus {
+            border-color: var(--accent-2);
+        }
+
+        .btn {
+            appearance: none;
+            cursor: pointer;
+            padding: 6px 6px;
+            border-radius: 10px;
+            border: 2.5px solid;
+            background: #0b1220;
+            color: var(--text);
+            font-weight: 600;
+        }
+
+
+
+        .btn.primary {
+            border-color: #1e40af;
+        }
+
+        .btn.success {
+            border-color: #15803d;
+        }
+
+        .btn.warn {
+            border-color: #b45309;
+        }
+
+        .btn.danger {
+            border-color: #c23131;
+        }
+
+        .btn.ghost {
+            border-color: white;
+            border-width: 2px;
+        }
+
+        .btn:hover {
+            border-color: #2a3a5f;
+        }
+
+        .msg {
+            color: var(--muted);
+            margin-top: 8px;
+        }
+
+        /* Table (GridView) */
+        table.grid {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            overflow: hidden;
+            border-radius: 12px;
+            border: 1px solid var(--line);
+        }
+
+        .grid th {
+            font-size: 13px;
+            color: var(--muted);
+            text-align: left;
+            background: #0c1428;
+        }
+
+        .grid td {
+            font-size: 18px;
+        }
+
+        .grid th,
+        .grid td {
+            padding: 10px 8px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .grid tr:hover td {
+            background: #0c1428;
+        }
+
+        .grid tr:last-child td {
+            border-bottom: none;
+        }
+
+        .row-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .tag {
+            border: 1px solid #334155;
+            border-radius: 999px;
+            padding: 3px 8px;
+            font-size: 12px;
+        }
+
+        .tag.green {
+            border-color: #166534;
+            color: #86efac;
+        }
+
+        .tag.blue {
+            border-color: #1e40af;
+            color: #93c5fd;
+        }
+
+        /* Bin */
+        .bin-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 420px;
+            overflow: auto;
+        }
+
+        .bin-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #0b1220;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 8px 10px;
+        }
+
+        .muted {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+
+        .floating-actions {
+            position: fixed;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            padding: 10px 12px;
+            background-color: rgba(15, 23, 42, 0.8);
+            border-top-right-radius: 8px;
+            border-top-left-radius: 8px;
+            z-index: 1000;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: center;
+            border: 1px solid var(--line);
+        }
+
+        input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+        }
+    </style>
+</head>
+
+<body>
+    <form id="form1" runat="server">
+        <div class="wrap">
+
+            <div class="header">
+                <div style="vertical-align: middle;">
+                    <div class="brand">ELI - Edge Lab Inventory</div>
+                    <div style="display:flex;gap:10px;align-items:center; margin: 5px 0 0 0;">
+                        <a href="InvFo.aspx"
+                            style="text-decoration:none;padding:8px 12px;border:1px solid #30435f;border-radius:10px; font-size: 1rem;">Főoldal</a>
+                        <a href="Inv.aspx"
+                            style="text-decoration:none;padding:8px 12px;border:1px solid #30435f;border-radius:10px; font-size: 1rem;">Leltár</a>
+                        <a href="InvProjects.aspx"
+                            style="text-decoration:none;padding:8px 12px;border:1px solid #30435f;border-radius:10px; font-size: 1rem;">Projektek</a>
+                    </div>
+                </div>
+                <div>
+                    <h1>
+                        <asp:Literal ID="litProjectName" runat="server" />
+                    </h1>
+                </div>
+            </div>
+
+            <div class="floating-actions">
+
+                <asp:ImageButton imageurl="/icons/downloads-white.png" Tooltip="Kijelölt eszközök levétele a projektről"
+                    ID="btnUnassignSelected" runat="server" CssClass="btn warn" Text="Levétel projektről" width="40px"
+                    height="40px" OnClick="btnUnassignSelected_Click" />
+
+            </div>
+
+            <div class="panel">
+                <div class="section-title">Keresés és szűrés</div>
+                <div class="filters" style="margin-bottom: 10px">
+                    <div class="stack" style="grid-column: span 5">
+                        <asp:TextBox ID="txtItemSearch" runat="server"
+                            placeholder="Eszköz név, barcode, kategória, hely alapján" />
+                    </div>
+                </div>
+                <div style="
+                                            display: flex;
+                                            gap: 8px;
+                                            margin-bottom: 12px;
+                                            flex-wrap: wrap;
+                                            justify-content: space-between;
+                                          ">
+
+                    <div>
+                        <asp:ImageButton ID="btnItemSearch" CssClass="btn primary" ImageUrl="/icons/search-white.png"
+                            tooltip="Keresés" runat="server" width="40px" height="40px" OnClick="btnItemSearch_Click" />
+                        <asp:imageButton CssClass="btn primary" ImageUrl="/icons/clear-filter-white.png"
+                            ID="btnItemClear" tooltip="Filter visszaállítása" runat="server" Text="Visszaállítás"
+                            OnClick="btnItemClear_Click" width="40px" height="40px" style="margin-left: 4px;" />
+                    </div>
+                    <asp:Label ID="lblMsg" runat="server" CssClass="msg" />
+                </div>
+
+                <asp:GridView ID="gvItems" runat="server" AutoGenerateColumns="false" CssClass="grid" GridLines="None">
+                    <Columns>
+                        <asp:TemplateField HeaderText="">
+                            <ItemTemplate>
+                                <asp:CheckBox ID="chkSelect" runat="server" />
+                                <asp:HiddenField ID="hidPartId" runat="server" Value='<%# Eval("PartId") %>' />
+                            </ItemTemplate>
+                        </asp:TemplateField>
+                        <asp:BoundField DataField="Barcode" HeaderText="Barcode" />
+                        <asp:BoundField DataField="Name" HeaderText="Eszköz név" />
+                        <asp:BoundField DataField="Category" HeaderText="Kategória" />
+                        <asp:BoundField DataField="Location" HeaderText="Hely" />
+                        <asp:BoundField DataField="AssignedAt" HeaderText="Hozzárendelve"
+                            DataFormatString="{0:yyyy-MM-dd HH:mm}" />
+                    </Columns>
+                </asp:GridView>
+            </div>
+
+        </div>
+    </form>
+</body>
+
+</html>
+
+
+--------------------------aspx.cs-----------------------------
+using System;
+using System.Configuration;
+using System.Data;
+using System.Data.SqlClient;
+using System.Web.UI.WebControls;
+using System.Collections.Generic;
+
+public partial class InvDetails : System.Web.UI.Page
+{
+   
+    private int ProjectId
+    {
+        get
+        {
+            int id;
+            string q = Request.QueryString["id"];
+            return (q != null && int.TryParse(q, out id)) ? id : 0;
+        }
+    }
+
+    protected void Page_Load(object sender, EventArgs e)
+    {
+        if (!IsPostBack)
+        {
+            if (ProjectId <= 0) { Response.Redirect("Projects.aspx"); return; }
+            LoadProject();
+            BindItems();
+        }
+    }
+
+    private void LoadProject()
+    {
+        using (var cn = new SqlConnection(ConnStr))
+        using (var cmd = new SqlCommand("SELECT Name FROM dbo.DLI_Projects WHERE ProjectId=@id", cn))
+        {
+            cmd.Parameters.AddWithValue("@id", ProjectId);
+            cn.Open();
+            var o = cmd.ExecuteScalar();
+            litProjectName.Text = o == null ? "Ismeretlen projekt" : "Projekt név: " + o.ToString();
+        }
+    }
+
+    private void BindItems(string filter = null)
+    {
+        string sql = @"
+        SELECT p.PartId, p.Barcode, p.Name, p.Category, p.Location, a.AssignedAt
+        FROM dbo.DLI_Parts p
+        JOIN dbo.DLI_PartAssignments a ON a.PartId=p.PartId AND a.IsActive=1
+        WHERE a.ProjectId=@id";
+
+        
+        if (!string.IsNullOrWhiteSpace(filter))
+        {
+            sql += @" AND (
+                    p.Name     LIKE @f OR
+                    p.Barcode  LIKE @f OR
+                    p.Category LIKE @f OR
+                    p.Location LIKE @f
+                 )";
+        }
+
+        sql += " ORDER BY p.Category, p.Barcode;";
+
+        using (var cn = new SqlConnection(ConnStr))
+        using (var cmd = new SqlCommand(sql, cn))
+        using (var da = new SqlDataAdapter(cmd))
+        {
+            cmd.Parameters.AddWithValue("@id", ProjectId);
+            if (!string.IsNullOrWhiteSpace(filter))
+                cmd.Parameters.AddWithValue("@f", "%" + filter + "%");
+
+            var dt = new DataTable();
+            da.Fill(dt);
+            gvItems.DataSource = dt;
+            gvItems.DataBind();
+        }
+    }
+
+    protected void btnItemSearch_Click(object sender, EventArgs e)
+    {
+        string f = (txtItemSearch.Text ?? "").Trim();
+        BindItems(f);
+    }
+
+    protected void btnItemClear_Click(object sender, EventArgs e)
+    {
+        txtItemSearch.Text = "";
+        BindItems(); 
+    }
+
+    protected void btnUnassignSelected_Click(object sender, EventArgs e)
+    {
+        List<int> ids = new List<int>();
+        foreach (GridViewRow row in gvItems.Rows)
+        {
+            var chk = row.FindControl("chkSelect") as CheckBox;
+            var hid = row.FindControl("hidPartId") as HiddenField;
+            int id;
+            if (chk != null && chk.Checked && hid != null && int.TryParse(hid.Value, out id)) ids.Add(id);
+        }
+        if (ids.Count == 0) { lblMsg.Text = "Nincs kijelölve tétel."; return; }
+
+        using (var cn = new SqlConnection(ConnStr))
+        using (var cmd = new SqlCommand(BuildUnassignSql(ids.Count), cn))
+        {
+            for (int i = 0; i < ids.Count; i++) cmd.Parameters.AddWithValue("@p" + i, ids[i]);
+            cn.Open(); cmd.ExecuteNonQuery();
+        }
+        lblMsg.Text = "Eltávolítva a projektről.";
+        BindItems();
+    }
+
+    private string BuildUnassignSql(int n)
+    {
+        var names = new string[n];
+        for (int i = 0; i < n; i++) names[i] = "@p" + i;
+        return "UPDATE dbo.DLI_PartAssignments SET IsActive=0 WHERE IsActive=1 AND PartId IN (" + string.Join(",", names) + ") AND ProjectId=" + ProjectId.ToString();
+    }
+}
+
+
+
