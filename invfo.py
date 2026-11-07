@@ -1,85 +1,77 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
-import pyodbc
+from typing import Any, Dict, List, Optional
 
-CONN_STR = (
-    "Driver={ODBC Driver 17 for SQL Server};"
-    "Server=localhost;"
-    "Database=your_database;"
-    "Trusted_Connection=yes;"
-)
+from database import database_connection
 
 
 class InvFo:
-    """Python equivalent of the C# InvFo dashboard backend."""
+    """Dashboard queries for the Patika product and stock tables."""
 
-    def __init__(self, conn_str: str = CONN_STR):
+    def __init__(self, conn_str: Optional[str] = None):
         self.conn_str = conn_str
 
-    def get_connection(self):
-        return pyodbc.connect(self.conn_str)
+    def get_connection(self) -> Any:
+        return database_connection(self.conn_str)
 
     def load_kpis(self) -> Dict[str, int]:
         sql = """
             SELECT
-              (SELECT COUNT(*) FROM dbo.DLI_Parts) AS AllCnt,
-              (SELECT COUNT(*) FROM dbo.DLI_PartAssignments WHERE IsActive=1) AS AssignedCnt,
-              (SELECT COUNT(*) FROM dbo.DLI_Parts p WHERE NOT EXISTS(
-                   SELECT 1 FROM dbo.DLI_PartAssignments a WHERE a.PartId=p.PartId AND a.IsActive=1
-              )) AS FreeCnt
+                (SELECT COUNT(*) FROM dbo.[Termék jellemzők]) AS ProductCnt,
+                (SELECT COUNT(*) FROM dbo.[Konkrét termék]) AS BatchCnt,
+                (SELECT COALESCE(SUM(T_db), 0) FROM dbo.[Konkrét termék]) AS StockCnt,
+                (SELECT COUNT(*) FROM dbo.[Konkrét termék]
+                 WHERE T_lejaratdatum < CONVERT(date, GETDATE())) AS ExpiredBatchCnt,
+                (SELECT COUNT(*) FROM dbo.[Konkrét termék] WHERE T_db <= 0) AS OutOfStockBatchCnt
         """
         with self.get_connection() as cn:
             row = cn.cursor().execute(sql).fetchone()
             return {
-                "AllCnt": row.AllCnt,
-                "AssignedCnt": row.AssignedCnt,
-                "FreeCnt": row.FreeCnt,
-            }
-
-    def load_project_kpis(self) -> Dict[str, int]:
-        sql = """
-            SELECT
-              (SELECT COUNT(*) FROM DLI_Projects) AS AllCnt,
-              (SELECT COUNT(*) FROM DLI_Projects WHERE IsActive=1) AS ActiveCnt,
-              (SELECT COUNT(*) FROM DLI_Projects WHERE IsActive=0) AS InactiveCnt
-        """
-        with self.get_connection() as cn:
-            row = cn.cursor().execute(sql).fetchone()
-            return {
-                "AllCnt": row.AllCnt,
-                "ActiveCnt": row.ActiveCnt,
-                "InactiveCnt": row.InactiveCnt,
+                "ProductCnt": row.ProductCnt,
+                "BatchCnt": row.BatchCnt,
+                "StockCnt": row.StockCnt,
+                "ExpiredBatchCnt": row.ExpiredBatchCnt,
+                "OutOfStockBatchCnt": row.OutOfStockBatchCnt,
             }
 
     def load_top_categories(self) -> List[Dict[str, Any]]:
         sql = """
-            SELECT ISNULL(NULLIF(LTRIM(RTRIM(Category)),''),'(nincs)') AS Category, COUNT(*) AS Cnt
-            FROM dbo.DLI_Parts
-            GROUP BY ISNULL(NULLIF(LTRIM(RTRIM(Category)),''),'(nincs)')
-            ORDER BY COUNT(*) DESC
+            SELECT
+                COALESCE(NULLIF(LTRIM(RTRIM(T_kateg)), ''), '(nincs)') AS Category,
+                COUNT(*) AS Cnt
+            FROM dbo.[Termék jellemzők]
+            GROUP BY COALESCE(NULLIF(LTRIM(RTRIM(T_kateg)), ''), '(nincs)')
+            ORDER BY COUNT(*) DESC, Category
         """
-        rows: List[Dict[str, Any]] = []
         with self.get_connection() as cn:
-            for row in cn.cursor().execute(sql):
-                rows.append({"Category": row.Category, "Cnt": row.Cnt})
-        return rows
+            return [
+                {"Category": row.Category, "Cnt": row.Cnt}
+                for row in cn.cursor().execute(sql)
+            ]
 
-    def load_top_projects(self) -> List[Dict[str, Any]]:
+    def load_top_products(self) -> List[Dict[str, Any]]:
         sql = """
-            SELECT p.ProjectId, p.Name, COUNT(a.PartId) AS Cnt
-            FROM dbo.DLI_Projects p
-            LEFT JOIN dbo.DLI_PartAssignments a ON a.ProjectId = p.ProjectId AND a.IsActive = 1
-            GROUP BY p.ProjectId, p.Name
-            ORDER BY COUNT(a.PartId) DESC
+            SELECT
+                product.T_ID AS ProductId,
+                product.T_nev AS Name,
+                product.T_kateg AS Category,
+                COALESCE(SUM(stock.T_db), 0) AS StockCnt
+            FROM dbo.[Termék jellemzők] AS product
+            LEFT JOIN dbo.[Konkrét termék] AS stock ON stock.T_ID = product.T_ID
+            GROUP BY product.T_ID, product.T_nev, product.T_kateg
+            ORDER BY COALESCE(SUM(stock.T_db), 0) DESC, product.T_nev
         """
-        rows: List[Dict[str, Any]] = []
         with self.get_connection() as cn:
-            for row in cn.cursor().execute(sql):
-                rows.append({"ProjectId": row.ProjectId, "Name": row.Name, "Cnt": row.Cnt})
-        return rows
+            return [
+                {
+                    "ProductId": row.ProductId,
+                    "Name": row.Name,
+                    "Category": row.Category,
+                    "StockCnt": row.StockCnt,
+                }
+                for row in cn.cursor().execute(sql)
+            ]
 
 
 if __name__ == "__main__":
-    service = InvFo()
-    print(service.load_kpis())
+    print(InvFo().load_kpis())

@@ -1,176 +1,185 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Dict, Iterable, List, Optional
-import pyodbc
 
-CONN_STR = (
-    "Driver={ODBC Driver 17 for SQL Server};"
-    "Server=localhost;"
-    "Database=your_database;"
-    "Trusted_Connection=yes;"
-)
+from database import database_connection
 
 
 class Inv:
-    """Python equivalent of the C# Inv backend logic."""
+    """Inventory operations backed by the Patika product and stock tables."""
 
-    def __init__(self, conn_str: str = CONN_STR):
+    def __init__(self, conn_str: Optional[str] = None):
         self.conn_str = conn_str
-        self.bin_ids: set[int] = set()
 
-    def get_connection(self):
-        return pyodbc.connect(self.conn_str)
+    def get_connection(self) -> Any:
+        return database_connection(self.conn_str)
 
-    def bind_projects(self) -> List[Dict[str, Any]]:
-        sql = "SELECT ProjectId, Name FROM DLI_Projects WHERE IsActive = 1 ORDER BY Name"
-        rows: List[Dict[str, Any]] = []
+    def bind_products(self) -> List[Dict[str, Any]]:
+        sql = """
+            SELECT T_ID AS ProductId, T_nev AS Name
+            FROM dbo.[Termék jellemzők]
+            ORDER BY T_nev
+        """
         with self.get_connection() as cn:
-            cursor = cn.cursor()
-            for project_id, name in cursor.execute(sql):
-                rows.append({"ProjectId": project_id, "Name": name})
-        return rows
+            return [
+                {"ProductId": row.ProductId, "Name": row.Name}
+                for row in cn.cursor().execute(sql)
+            ]
 
     def bind_categories(self) -> List[str]:
-        sql = (
-            "SELECT DISTINCT Category FROM DLI_Parts "
-            "WHERE Category IS NOT NULL AND LTRIM(RTRIM(Category)) <> '' "
-            "ORDER BY Category"
-        )
-        rows: List[str] = []
+        sql = """
+            SELECT DISTINCT T_kateg
+            FROM dbo.[Termék jellemzők]
+            WHERE NULLIF(LTRIM(RTRIM(T_kateg)), '') IS NOT NULL
+            ORDER BY T_kateg
+        """
         with self.get_connection() as cn:
-            cursor = cn.cursor()
-            for (category,) in cursor.execute(sql):
-                rows.append(category)
-        return rows
+            return [row[0].strip() for row in cn.cursor().execute(sql)]
 
     def get_parts(
         self,
         search: Optional[str] = None,
         category: Optional[str] = None,
         status: Optional[str] = None,
-        project_id: Optional[int] = None,
+        product_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         sql = """
-            SELECT p.PartId, p.Barcode, p.Name, p.Category, p.Location, p.CreatedAt,
-                   a.ProjectId, pr.Name AS ProjectName
-            FROM DLI_Parts p
-            LEFT JOIN DLI_PartAssignments a ON a.PartId = p.PartId AND a.IsActive = 1
-            LEFT JOIN DLI_Projects pr ON pr.ProjectId = a.ProjectId
-            WHERE 1=1
+            SELECT
+                stock.T_kod AS PartId,
+                stock.T_kod AS Barcode,
+                product.T_nev AS Name,
+                product.T_kateg AS Category,
+                CONCAT(RTRIM(product.T_sor), ' / ', RTRIM(product.T_polc)) AS Location,
+                stock.T_lejaratdatum AS ExpiryDate,
+                stock.T_ID AS ProductId,
+                product.T_nev AS ProductName,
+                stock.T_db AS Quantity
+            FROM dbo.[Konkrét termék] AS stock
+            INNER JOIN dbo.[Termék jellemzők] AS product ON product.T_ID = stock.T_ID
+            WHERE 1 = 1
         """
         params: List[Any] = []
 
         if search and search.strip():
-            sql += " AND (p.Name LIKE ? OR p.Barcode LIKE ?)"
-            q = f"%{search.strip()}%"
-            params.extend([q, q])
+            sql += " AND (product.T_nev LIKE ? OR stock.T_kod LIKE ? OR product.T_marka LIKE ?)"
+            query = f"%{search.strip()}%"
+            params.extend((query, query, query))
 
-        if category:
-            sql += " AND p.Category = ?"
-            params.append(category)
+        if category and category.strip():
+            sql += " AND product.T_kateg = ?"
+            params.append(category.strip())
 
         if status:
-            if status == "free":
-                sql += " AND a.ProjectId IS NULL"
-            elif status == "assigned":
-                sql += " AND a.ProjectId IS NOT NULL"
+            if status == "in_stock":
+                sql += " AND stock.T_db > 0 AND stock.T_lejaratdatum >= CONVERT(date, GETDATE())"
+            elif status == "out_of_stock":
+                sql += " AND stock.T_db <= 0"
+            elif status == "expired":
+                sql += " AND stock.T_lejaratdatum < CONVERT(date, GETDATE())"
+            else:
+                raise ValueError("A státusz csak in_stock, out_of_stock vagy expired lehet.")
 
-        if project_id is not None:
-            sql += " AND a.ProjectId = ?"
-            params.append(project_id)
+        if product_id is not None:
+            sql += " AND stock.T_ID = ?"
+            params.append(product_id)
 
-        sql += " ORDER BY p.Category, p.Barcode"
+        sql += " ORDER BY product.T_kateg, product.T_nev, stock.T_lejaratdatum"
 
-        results: List[Dict[str, Any]] = []
         with self.get_connection() as cn:
-            cursor = cn.cursor()
-            for row in cursor.execute(sql, params):
-                results.append(
-                    {
-                        "PartId": row.PartId,
-                        "Barcode": row.Barcode,
-                        "Name": row.Name,
-                        "Category": row.Category,
-                        "Location": row.Location,
-                        "CreatedAt": row.CreatedAt,
-                        "ProjectId": row.ProjectId,
-                        "ProjectName": row.ProjectName,
-                    }
-                )
-        return results
+            return [
+                {
+                    "PartId": row.PartId,
+                    "Barcode": row.Barcode,
+                    "Name": row.Name,
+                    "Category": row.Category,
+                    "Location": row.Location.strip(),
+                    "ExpiryDate": row.ExpiryDate,
+                    "ProductId": row.ProductId,
+                    "ProductName": row.ProductName,
+                    "Quantity": row.Quantity,
+                }
+                for row in cn.cursor().execute(sql, params)
+            ]
 
-    def get_parts_by_ids(self, ids: Iterable[int]) -> List[Dict[str, Any]]:
-        ids = list(ids)
-        if not ids:
+    def get_parts_by_ids(self, ids: Iterable[str]) -> List[Dict[str, Any]]:
+        batch_codes = list(dict.fromkeys(code.strip() for code in ids if code.strip()))
+        if not batch_codes:
             return []
 
-        placeholders = ", ".join("?" for _ in ids)
+        placeholders = ", ".join("?" for _ in batch_codes)
         sql = f"""
-            SELECT p.PartId, p.Barcode, p.Name, p.Category, p.Location,
-                   a.ProjectId, pr.Name AS ProjectName
-            FROM DLI_Parts p
-            LEFT JOIN DLI_PartAssignments a ON a.PartId = p.PartId AND a.IsActive = 1
-            LEFT JOIN DLI_Projects pr ON pr.ProjectId = a.ProjectId
-            WHERE p.PartId IN ({placeholders})
+            SELECT
+                stock.T_kod AS PartId,
+                stock.T_kod AS Barcode,
+                product.T_nev AS Name,
+                product.T_kateg AS Category,
+                CONCAT(RTRIM(product.T_sor), ' / ', RTRIM(product.T_polc)) AS Location,
+                stock.T_lejaratdatum AS ExpiryDate,
+                stock.T_ID AS ProductId,
+                stock.T_db AS Quantity
+            FROM dbo.[Konkrét termék] AS stock
+            INNER JOIN dbo.[Termék jellemzők] AS product ON product.T_ID = stock.T_ID
+            WHERE stock.T_kod IN ({placeholders})
         """
-
-        results: List[Dict[str, Any]] = []
         with self.get_connection() as cn:
-            cursor = cn.cursor()
-            for row in cursor.execute(sql, ids):
-                results.append(
-                    {
-                        "PartId": row.PartId,
-                        "Barcode": row.Barcode,
-                        "Name": row.Name,
-                        "Category": row.Category,
-                        "Location": row.Location,
-                        "ProjectId": row.ProjectId,
-                        "ProjectName": row.ProjectName,
-                    }
-                )
-        return results
+            return [
+                {
+                    "PartId": row.PartId,
+                    "Barcode": row.Barcode,
+                    "Name": row.Name,
+                    "Category": row.Category,
+                    "Location": row.Location.strip(),
+                    "ExpiryDate": row.ExpiryDate,
+                    "ProductId": row.ProductId,
+                    "Quantity": row.Quantity,
+                }
+                for row in cn.cursor().execute(sql, batch_codes)
+            ]
 
     def load_kpis(self) -> Dict[str, int]:
         sql = """
             SELECT
-              (SELECT COUNT(*) FROM dbo.DLI_Parts) AS AllCnt,
-              (SELECT COUNT(*) FROM dbo.DLI_PartAssignments WHERE IsActive=1) AS AssignedCnt,
-              (SELECT COUNT(*) FROM dbo.DLI_Parts p WHERE NOT EXISTS(
-                   SELECT 1 FROM dbo.DLI_PartAssignments a WHERE a.PartId=p.PartId AND a.IsActive=1
-              )) AS FreeCnt
+                (SELECT COUNT(*) FROM dbo.[Termék jellemzők]) AS ProductCnt,
+                (SELECT COUNT(*) FROM dbo.[Konkrét termék]) AS BatchCnt,
+                (SELECT COALESCE(SUM(T_db), 0) FROM dbo.[Konkrét termék]) AS StockCnt,
+                (SELECT COUNT(*) FROM dbo.[Konkrét termék]
+                 WHERE T_lejaratdatum < CONVERT(date, GETDATE())) AS ExpiredBatchCnt,
+                (SELECT COUNT(*) FROM dbo.[Konkrét termék] WHERE T_db <= 0) AS OutOfStockBatchCnt
         """
         with self.get_connection() as cn:
-            cursor = cn.cursor()
-            row = cursor.execute(sql).fetchone()
+            row = cn.cursor().execute(sql).fetchone()
             return {
-                "AllCnt": row.AllCnt,
-                "AssignedCnt": row.AssignedCnt,
-                "FreeCnt": row.FreeCnt,
+                "ProductCnt": row.ProductCnt,
+                "BatchCnt": row.BatchCnt,
+                "StockCnt": row.StockCnt,
+                "ExpiredBatchCnt": row.ExpiredBatchCnt,
+                "OutOfStockBatchCnt": row.OutOfStockBatchCnt,
             }
 
     def build_groups(self, parts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        grouped: Dict[str, List[Dict[str, Any]]] = {}
+        grouped: Dict[int, List[Dict[str, Any]]] = {}
         for part in parts:
-            key = str(part.get("Barcode") or "").strip()
-            grouped.setdefault(key, []).append(part)
+            product_id = int(part["ProductId"])
+            grouped.setdefault(product_id, []).append(part)
 
         result: List[Dict[str, Any]] = []
-        for key, group in sorted(
-            grouped.items(), key=lambda item: (-len(item[1]), item[0])
+        for product_id, batches in sorted(
+            grouped.items(),
+            key=lambda item: (
+                -sum(int(batch.get("Quantity") or 0) for batch in item[1]),
+                str(item[0]),
+            ),
         ):
-            sample_name = ""
-            for part in group:
-                name = str(part.get("Name") or "").strip()
-                if name:
-                    sample_name = name
-                    break
+            sample = batches[0]
             result.append(
                 {
-                    "Barcode": key,
-                    "Count": len(group),
-                    "SampleName": sample_name,
-                    "KeySafe": self.make_safe_key(key),
+                    "ProductId": product_id,
+                    "Count": sum(int(batch.get("Quantity") or 0) for batch in batches),
+                    "BatchCount": len(batches),
+                    "SampleName": str(sample.get("Name") or "").strip(),
+                    "Category": sample.get("Category"),
+                    "KeySafe": self.make_safe_key(str(product_id)),
                 }
             )
         return result
@@ -185,92 +194,101 @@ class Inv:
             chars.append(ch if ok else "_")
         return "".join(chars)
 
-    def add_part_to_db(self, barcode: str, name: str, category: str, location: str) -> int:
+    def add_stock_batch(
+        self,
+        product_id: int,
+        batch_code: str,
+        expiry_date: date,
+        quantity: int,
+    ) -> None:
+        if not batch_code or not batch_code.strip():
+            raise ValueError("A tételkód kötelező.")
+        if quantity < 0:
+            raise ValueError("A készletmennyiség nem lehet negatív.")
+
         sql = """
-            INSERT INTO DLI_Parts(Barcode, Name, Category, Location, CreatedAt)
-            VALUES(?, ?, ?, ?, SYSDATETIME());
-            SELECT CAST(SCOPE_IDENTITY() AS int);
+            INSERT INTO dbo.[Konkrét termék](T_kod, T_ID, T_lejaratdatum, T_db)
+            VALUES(?, ?, ?, ?)
         """
         with self.get_connection() as cn:
+            cn.cursor().execute(sql, (batch_code.strip(), product_id, expiry_date, quantity))
+            cn.commit()
+
+    def update_batch_quantity(self, batch_code: str, quantity: int) -> None:
+        if quantity < 0:
+            raise ValueError("A készletmennyiség nem lehet negatív.")
+
+        with self.get_connection() as cn:
             cursor = cn.cursor()
-            row = cursor.execute(
-                sql,
-                (
-                    barcode or None,
-                    name or None,
-                    category or None,
-                    location or None,
-                ),
+            cursor.execute(
+                "UPDATE dbo.[Konkrét termék] SET T_db = ? WHERE T_kod = ?",
+                (quantity, batch_code),
             )
-            inserted_id = row.fetchone()[0]
+            if cursor.rowcount == 0:
+                raise KeyError(f"Nem található tétel: {batch_code}")
             cn.commit()
-            return int(inserted_id)
 
-    def assign_parts_to_project(self, part_ids: Iterable[int], project_id: int) -> None:
-        ids = list(dict.fromkeys(part_ids))
-        if not ids:
+    def delete_batches(self, batch_codes: Iterable[str]) -> None:
+        codes = list(dict.fromkeys(code.strip() for code in batch_codes if code.strip()))
+        if not codes:
             return
+
+        placeholders = ", ".join("?" for _ in codes)
         with self.get_connection() as cn:
             cursor = cn.cursor()
-            for part_id in ids:
-                cursor.execute(
-                    "UPDATE DLI_PartAssignments SET IsActive=0 WHERE PartId=? AND IsActive=1",
-                    (part_id,),
+            cursor.execute(
+                f"""
+                SELECT stock.T_kod
+                FROM dbo.[Konkrét termék] AS stock
+                WHERE stock.T_kod IN ({placeholders})
+                  AND EXISTS (
+                      SELECT 1 FROM dbo.[Eladások] AS sales
+                      WHERE sales.T_kod = stock.T_kod
+                  )
+                """,
+                codes,
+            )
+            sold_codes = [row.T_kod for row in cursor.fetchall()]
+            if sold_codes:
+                raise ValueError(
+                    "Az értékesítési előzménnyel rendelkező tételek nem törölhetők: "
+                    + ", ".join(sold_codes)
                 )
-                cursor.execute(
-                    "INSERT INTO DLI_PartAssignments(PartId, ProjectId, AssignedAt, IsActive) VALUES(?, ?, SYSDATETIME(), 1)",
-                    (part_id, project_id),
-                )
+            cursor.execute(
+                f"DELETE FROM dbo.[Konkrét termék] WHERE T_kod IN ({placeholders})",
+                codes,
+            )
             cn.commit()
 
-    def unassign_parts(self, part_ids: Iterable[int]) -> None:
-        ids = list(part_ids)
-        if not ids:
-            return
-        placeholders = ", ".join("?" for _ in ids)
-        sql = f"UPDATE DLI_PartAssignments SET IsActive=0 WHERE PartId IN ({placeholders}) AND IsActive=1"
-        with self.get_connection() as cn:
-            cn.cursor().execute(sql, ids)
-            cn.commit()
-
-    def delete_parts(self, part_ids: Iterable[int]) -> None:
-        ids = list(part_ids)
-        if not ids:
-            return
-        placeholders = ", ".join("?" for _ in ids)
-        with self.get_connection() as cn:
-            cursor = cn.cursor()
-            cursor.execute(f"DELETE FROM DLI_PartAssignments WHERE PartId IN ({placeholders})", ids)
-            cursor.execute(f"DELETE FROM DLI_Parts WHERE PartId IN ({placeholders})", ids)
-            cn.commit()
-
-    def add_new_parts_from_rows(self, rows: List[Dict[str, Any]]) -> int:
+    def add_stock_batches_from_rows(self, rows: List[Dict[str, Any]]) -> int:
         inserted = 0
         with self.get_connection() as cn:
             cursor = cn.cursor()
             for row in rows:
-                name = str(row.get("Name") or "").strip()
-                if not name:
-                    continue
-                barcode = str(row.get("Barcode") or "").strip()
-                category = str(row.get("Category") or "").strip()
-                location = str(row.get("Location") or "").strip()
-                repeat_count = int(row.get("Number") or 1)
-                for _ in range(max(repeat_count, 1)):
-                    cursor.execute(
-                        "INSERT INTO DLI_Parts(Barcode, Name, Category, Location, CreatedAt) VALUES(?, ?, ?, ?, SYSDATETIME())",
-                        (
-                            barcode or None,
-                            name,
-                            category or None,
-                            location or None,
-                        ),
-                    )
-                    inserted += 1
+                try:
+                    product_id = int(row["ProductId"])
+                    batch_code = str(row["BatchCode"]).strip()
+                    expiry_date = date.fromisoformat(str(row["ExpiryDate"]))
+                    quantity = int(row["Quantity"])
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise ValueError(
+                        "Minden tételsorhoz ProductId, BatchCode, YYYY-MM-DD formátumú "
+                        "ExpiryDate és egész Quantity szükséges."
+                    ) from exc
+
+                if not batch_code or quantity < 0:
+                    raise ValueError("A tételkód kötelező, a készletmennyiség nem lehet negatív.")
+                cursor.execute(
+                    """
+                    INSERT INTO dbo.[Konkrét termék](T_kod, T_ID, T_lejaratdatum, T_db)
+                    VALUES(?, ?, ?, ?)
+                    """,
+                    (batch_code, product_id, expiry_date, quantity),
+                )
+                inserted += 1
             cn.commit()
         return inserted
 
 
 if __name__ == "__main__":
-    service = Inv()
-    print(service.bind_projects())
+    print(Inv().load_kpis())
